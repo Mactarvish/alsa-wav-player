@@ -285,10 +285,10 @@ void AlsaWavPlayer::Stop()
             cv.notify_all();
         }
         while (status != STOPPED) {}
-        if (playThread.joinable())
-        {
-            playThread.join();
-        }
+    }
+    if (playThread.joinable())
+    {
+        playThread.join();
     }
 }
 

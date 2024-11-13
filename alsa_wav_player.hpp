@@ -29,9 +29,9 @@ public:
     void Stop();
     void Pause();
     void Resume();
-    void ReadWavFile(std::string wav_file_path);
 
 private:
+    void ReadWavFile(std::string wav_file_path);
     void CreatePlayThread();
 
     int i, fd;
