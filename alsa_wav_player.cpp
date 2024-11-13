@@ -1,4 +1,7 @@
 #include "alsa_wav_player.hpp"
+// #include "../../utils/logger.h"
+
+// static auto logger = GetLogger("speech_order_executor");
 
 
 //下面这四个结构体是为了分析wav头的
@@ -120,28 +123,31 @@ int check_wavfile(int fd, HWParams* hw_params)
     return -1;
 }
 
-AlsaWavPlayer::AlsaWavPlayer() : stopped(false), paused(false), buffer(nullptr), handle(nullptr)
+AlsaWavPlayer::AlsaWavPlayer() : cvReady(false), status(STOPPED), orderStop(false), orderPause(false),
+                                    buffer(nullptr), handle(nullptr)
 {
-
 }
 
-AlsaWavPlayer::~AlsaWavPlayer() {
-    if (playThread.joinable()) {
+AlsaWavPlayer::~AlsaWavPlayer()
+{
+    if (playThread.joinable())
+    {
         playThread.join();
     }
-    if (handle != nullptr) {
-        snd_pcm_drain(handle);
+    if (handle != nullptr)
+    {
+        // snd_pcm_drain(handle);
         snd_pcm_close(handle);
         handle = nullptr;
     }
-    if (buffer != nullptr) {
+    if (buffer != nullptr)
+    {
         free(buffer);
         buffer = nullptr;
     }
-    // return EXIT_SUCCESS;
 }
 
-void AlsaWavPlayer::ReadWavFile(const std::string &wav_file_path) {
+void AlsaWavPlayer::ReadWavFile(std::string wav_file_path) {
     fd = open(wav_file_path.c_str(), O_RDWR);
     if(fd<0)
     {
@@ -185,33 +191,111 @@ void AlsaWavPlayer::ReadWavFile(const std::string &wav_file_path) {
     snd_pcm_hw_params_get_period_time(params, &val, &dir);
 }
 
-void AlsaWavPlayer::Play() {
+void AlsaWavPlayer::CreatePlayThread()
+{
     playThread = std::thread([&]() {
-        while((!stopped) && (!paused))
+        while(true)
         {
-            ret = read(fd, buffer, size);                //3.从wav文件中读取数据
-            if(ret==0)
+            if (orderStop)
             {
-                // logger->info("end of file");
-                // return 0;
+                orderStop = false;
                 break;
-            }else if (ret!=size)
+            }
+            if (orderPause)
             {
-                // logger->info("short read");
+                std::cout << "pause-id " << std::this_thread::get_id() << std::endl;
+                snd_pcm_pause(handle, 1);
+                status = PAUSED;
+                orderPause = false;
+                // 挂起线程
+                std::unique_lock<std::mutex> lock(mtx);
+                while (!cvReady)
+                {
+                    cv.wait(lock);
+                }
+                cvReady = false;
+                // 收到终止指令，直接退出
+                if (orderStop)
+                {
+                    orderStop = false;
+                    break;
+                }
+                // 收到播放指令，线程被唤醒继续播放
+                snd_pcm_pause(handle, 0);
+                status = PLAYING;
             }
 
+            ret = read(fd, buffer, size);                //3.从wav文件中读取数据
+            if(ret == 0)
+            {
+                std::cerr << "end of file" << std::endl;
+                // return 0;
+                break;
+            }
+            else if (ret != size)
+            {
+                std::cerr << "short read" << std::endl;
+            }
+            status = PLAYING;
             ret = snd_pcm_writei(handle, buffer, frames);   //4.将读取数据写到driver中进行播放
             if(ret == -EPIPE)
             {
                 //logger->info("-EPIPE");
                 snd_pcm_prepare(handle);
             }
-            // logger->info("time count = {} ms", get_current_time() - t_);
         }
         snd_pcm_drop(handle);
+        snd_pcm_close(handle);
+        status = STOPPED;
     });
 }
 
-void AlsaWavPlayer::Stop() {
-    stopped = true;
+void AlsaWavPlayer::Play(std::string srcWavPath)
+{
+    if (status == PLAYING)
+    {
+        return;
+    }
+    Stop();
+    ReadWavFile(std::move(srcWavPath));
+    CreatePlayThread();
+}
+
+void AlsaWavPlayer::Resume()
+{
+    if (status == PAUSED)
+    {
+        // 唤起播放线程继续播放
+        std::lock_guard<std::mutex> lock(mtx);
+        cvReady = true;
+        cv.notify_all();
+    }
+}
+
+void AlsaWavPlayer::Stop()
+{
+    if (status != STOPPED)
+    {
+        orderStop = true;
+        if (status == PAUSED)
+        {
+            // 唤起并结束播放线程
+            std::lock_guard<std::mutex> lock(mtx);
+            cvReady = true;
+            cv.notify_all();
+        }
+        while (status != STOPPED) {}
+        if (playThread.joinable())
+        {
+            playThread.join();
+        }
+    }
+}
+
+void AlsaWavPlayer::Pause()
+{
+    if (status == PLAYING)
+    {
+        orderPause = true;
+    }
 }

@@ -1,7 +1,11 @@
 #pragma once
-#include <thread>
 #include <string>
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <alsa/asoundlib.h>
+
 
 //需要从wav文件中读取的三个参数
 typedef struct {
@@ -10,15 +14,26 @@ typedef struct {
     unsigned int rate;
 }HWParams;
 
+
+enum PlayerStatus {
+    PLAYING,
+    STOPPED,
+    PAUSED
+};
+
 class AlsaWavPlayer {
 public:
     explicit AlsaWavPlayer();
     virtual ~AlsaWavPlayer();
-    void ReadWavFile(const std::string &wav_file_path);
-    void Play();
+    void Play(std::string srcWavPath);
     void Stop();
+    void Pause();
+    void Resume();
+    void ReadWavFile(std::string wav_file_path);
 
 private:
+    void CreatePlayThread();
+
     int i, fd;
     int ret, dir, size;
     unsigned int val, val2;
@@ -28,8 +43,13 @@ private:
     snd_pcm_uframes_t periodsize;
     snd_pcm_uframes_t frames;
     HWParams hw_params;
-    bool stopped;
-    bool paused;
+    bool orderStop;
+    bool orderPause;
+    PlayerStatus status;
+
+    std::mutex mtx;  // 互斥锁，保护共享资源
+    std::condition_variable cv;  // 条件变量
+    bool cvReady;
 
     std::thread playThread;
 };

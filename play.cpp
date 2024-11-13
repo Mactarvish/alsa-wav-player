@@ -1,33 +1,45 @@
 #include <iostream>
 #include "alsa_wav_player.hpp"
 #include <string>
+#include "../../utils/logger.h"
+
+static auto logger = GetLogger("play_csdn");
+
 
 
 int main ( int argc, char *argv[] ) {
     AlsaWavPlayer alsaWavPlayer;
-    alsaWavPlayer.ReadWavFile(argv[1]);
-    alsaWavPlayer.Play();
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    // logger->info("Stop");
-    // alsaWavPlayer.Stop();
-    while (std::cin >> std::ws)
+    std::string input;
+
+    while (std::cin >> input)
     {
-        auto e = std::cin.get();
-        if (e == 'q')
+        if (input == "quit")
         {
             break;
         }
-        else if (e == 'p')
+        else if (input == "play")
         {
-            alsaWavPlayer.Play();
+            logger->info("playing");
+            alsaWavPlayer.Play(argv[1]);
         }
-        else if (e == 's')
+        else if (input == "stop")
         {
+            logger->info("stopped");
             alsaWavPlayer.Stop();
+        }
+        else if (input == "pause")
+        {
+            logger->info("paused");
+            alsaWavPlayer.Pause();
+        }
+        else if (input == "resume")
+        {
+            logger->info("resume...");
+            alsaWavPlayer.Resume();
         }
         else
         {
-            // logger->info("Invalid input");
+            logger->info("Invalid input");
         }
     }
 
